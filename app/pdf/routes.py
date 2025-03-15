@@ -1,5 +1,6 @@
 # app/pdf/routes.py
 from fastapi import APIRouter, File, UploadFile, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.db.models import Report, HealthParameter, HealthParameterStatus
@@ -10,8 +11,15 @@ from app.pdf.parser import extract_health_parameters_from_pdf, validate_health_p
 from celery_worker import extract_pdf_task
 import boto3
 import os
+import re
 
 router = APIRouter()
+
+def normalize_name(name: str) -> str:
+    """
+    Normalize a parameter name for comparison by removing all non-alphanumeric characters.
+    """
+    return re.sub(r'[^a-z0-9]', '', name.lower())
 
 @router.post("/upload", tags=["PDF Upload"])
 async def upload_report(
@@ -19,6 +27,9 @@ async def upload_report(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
+    """
+    Endpoint to upload the health test report uploaded by the client.
+    """
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF files are accepted")
 
@@ -58,68 +69,56 @@ async def extract_parameters(report_unique_id: str, db: Session = Depends(get_db
       - Extracts parameters using the dynamic parser.
       - Validates parameters with OpenAI (sending only non-sensitive details).
       - For each validated health test name (from OpenAI):
-          * Convert the name to a normalized version (lowercase/strip) for DB lookup
-          * If it doesn't exist in PostgreSQL for this report, insert it with pending status.
-          * If it exists with 'rejected' status, update it to pending.
-          * If it exists with 'approved' or 'pending', do nothing.
-      - In DynamoDB, add or update items for each validated test name (one row per PDF upload).
-      - Returns final "approved_parameters" and "pending_parameters" by reading from the DB
-        and updating DynamoDB accordingly.
+            * Normalize the name for comparison.
+            * If it doesn't exist in PostgreSQL for this report, insert it with pending status.
+            * If it exists with 'rejected' status, update it to pending.
+            * If it exists with 'approved' or 'pending', do nothing.
+      - In DynamoDB, update (or create) a single document for the PDF upload that contains a list of validated health test parameters and their statuses.
+      - Returns a response with "approved_parameters" and "pending_parameters" as determined by PostgreSQL.
     """
-    from sqlalchemy import func  # for case-insensitive matching
-
-    # Lookup the report in PostgreSQL
+    # Lookup report in PostgreSQL.
     report = db.query(Report).filter(Report.report_unique_id == report_unique_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     
-    # Download PDF from S3
+    # Download PDF from S3.
     try:
         temp_file = s3_utils.download_pdf_from_s3(report.s3_path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to download PDF: {str(e)}")
     
-    # Extract parameters from PDF
+    # Extract parameters from PDF.
     extracted_params = extract_health_parameters_from_pdf(temp_file)
     if not extracted_params:
         raise HTTPException(status_code=400, detail="No health parameters extracted from the PDF.")
     
-    # Validate parameters with OpenAI
+    # Validate parameters with OpenAI.
     try:
         valid_params, _ = validate_health_parameters_with_openai(extracted_params)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OpenAI validation failed: {str(e)}")
     
-    # List of validated names from OpenAI
+    # Get the list of validated health test names from OpenAI.
     validated_names = list(valid_params.keys())
+    
+    # Fetch all existing health parameters for this report from PostgreSQL.
+    existing_params = db.query(HealthParameter).filter(
+        HealthParameter.report_id == report.id
+    ).all()
+    existing_map = { normalize_name(p.parameter_name): p for p in existing_params }
 
-    # Initialize DynamoDB
-    dynamo_table_name = settings.DYNAMODB_HEALTH_TABLE
-    if not dynamo_table_name:
-        raise HTTPException(status_code=500, detail="DynamoDB table name not configured")
-    dynamodb = boto3.resource("dynamodb", region_name=os.getenv("AWS_REGION", "us-east-1"))
-    table = dynamodb.Table(dynamo_table_name)
-
-    # Step 1: Update PostgreSQL to avoid duplicates
+    # Update PostgreSQL: Insert new records or update rejected ones.
     for validated_name in validated_names:
         details = valid_params[validated_name]
-
-        # Use a normalized (lowercased, stripped) version for DB lookup
-        normalized_name = validated_name.strip().lower()
-
-        # Attempt to find an existing record for this parameter (case-insensitive)
-        db_param = db.query(HealthParameter).filter(
-            HealthParameter.report_id == report.id,
-            func.lower(HealthParameter.parameter_name) == normalized_name
-        ).first()
-
+        norm_name = normalize_name(validated_name)
+        db_param = existing_map.get(norm_name)
         if db_param:
-            # If the record exists, update from 'rejected' to 'pending' if needed
+            # If record exists and is rejected, update it to pending.
             if db_param.status == HealthParameterStatus.rejected:
                 db_param.status = HealthParameterStatus.pending
-            # If it's already pending or approved, do nothing
+            # Else, if already pending or approved, do nothing.
         else:
-            # If not found, insert a new record with pending status
+            # Insert new record with pending status.
             new_param = HealthParameter(
                 report_id=report.id,
                 parameter_name=validated_name.strip(),  # store original validated name
@@ -130,55 +129,47 @@ async def extract_parameters(report_unique_id: str, db: Session = Depends(get_db
                 status=HealthParameterStatus.pending
             )
             db.add(new_param)
-
     db.commit()
-
-    # Step 2: Query the final statuses in PostgreSQL and update DynamoDB
+    
+    # Rebuild the mapping from DB after commit.
+    existing_params = db.query(HealthParameter).filter(
+        HealthParameter.report_id == report.id
+    ).all()
+    # Separate approved and pending names.
     approved_list = []
     pending_list = []
-
-    for validated_name in validated_names:
-        normalized_name = validated_name.strip().lower()
-
-        db_param = db.query(HealthParameter).filter(
-            HealthParameter.report_id == report.id,
-            func.lower(HealthParameter.parameter_name) == normalized_name
-        ).first()
-
-        if db_param:
-            # If param is found in DB, store item in DynamoDB with the correct status
-            if db_param.status == HealthParameterStatus.approved:
-                approved_list.append(db_param.parameter_name)  # use actual stored name
-                table.put_item(
-                    Item={
-                        "report_id": report_unique_id,
-                        "parameter_name": db_param.parameter_name,
-                        "details": valid_params[validated_name],
-                        "status": "approved"
-                    }
-                )
-            else:
-                pending_list.append(db_param.parameter_name)
-                table.put_item(
-                    Item={
-                        "report_id": report_unique_id,
-                        "parameter_name": db_param.parameter_name,
-                        "details": valid_params[validated_name],
-                        "status": "pending"
-                    }
-                )
-        else:
-            # Should not happen, but in case no DB record found
-            pending_list.append(validated_name)
-            table.put_item(
-                Item={
-                    "report_id": report_unique_id,
-                    "parameter_name": validated_name,
-                    "details": valid_params[validated_name],
-                    "status": "pending"
-                }
-            )
-
+    for param in existing_params:
+        norm_db = normalize_name(param.parameter_name)
+        # Only consider parameters that were validated by OpenAI.
+        if norm_db in [normalize_name(name) for name in validated_names]:
+            if param.status == HealthParameterStatus.approved:
+                approved_list.append(param.parameter_name)
+            elif param.status == HealthParameterStatus.pending:
+                pending_list.append(param.parameter_name)
+    
+    # Update DynamoDB: Create a single document for this PDF upload.
+    dynamo_table_name = settings.DYNAMODB_HEALTH_TABLE
+    if not dynamo_table_name:
+        raise HTTPException(status_code=500, detail="DynamoDB table name not configured")
+    dynamodb = boto3.resource("dynamodb", region_name=os.getenv("AWS_REGION", "us-east-1"))
+    table = dynamodb.Table(dynamo_table_name)
+    
+    # Build one document that includes the list of validated parameters with their statuses.
+    dynamo_document = {
+        "report_id": report_unique_id,
+        "parameters": []  # List of dicts: each with parameter_name and status.
+    }
+    for param in existing_params:
+        norm_db = normalize_name(param.parameter_name)
+        if norm_db in [normalize_name(name) for name in validated_names]:
+            dynamo_document["parameters"].append({
+                "parameter_name": param.parameter_name,
+                "status": "approved" if param.status == HealthParameterStatus.approved else "pending"
+            })
+    # Upsert the document in DynamoDB.
+    table.put_item(Item=dynamo_document)
+    
+    # Return the final API response.
     return {
         "message": "Extraction and validation complete",
         "approved_parameters": approved_list,
