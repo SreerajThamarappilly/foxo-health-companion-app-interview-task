@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Admin Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+<div class="container my-4">
+  <h1>Admin Dashboard</h1>
+
+  <!-- SECTION 1: Registered Clients -->
+  <h2>Registered Clients</h2>
+  <table class="table table-striped">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Phone Number</th>
+        <th>Username</th>
+        <th>Role</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for client in clients %}
+      <tr>
+        <td>{{ client.id }}</td>
+        <td>{{ client.phone_number }}</td>
+        <td>{{ client.username }}</td>
+        <!-- .value to show just "client" instead of "UserRole.client" -->
+        <td>{{ client.role.value }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- SECTION 2: Uploaded Reports -->
+  <h2>Uploaded Reports</h2>
+  <table class="table table-striped">
+    <thead>
+      <tr>
+        <th>Report ID</th>
+        <th>Client ID</th>
+        <th>S3 Path</th>
+        <th>Timestamp</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for report in reports %}
+      <tr>
+        <td>{{ report.report_unique_id }}</td>
+        <td>{{ report.client_id }}</td>
+        <td>{{ report.s3_path }}</td>
+        <td>{{ report.uploaded_at }}</td>
+        <td>{{ report.processing_status.value }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- SECTION 3: Approved Health Parameters -->
+  <h2>Approved Health Parameters</h2>
+  <table class="table table-striped">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Report Unique ID</th>
+        <th>Parameter Name</th>
+        <th>Value</th>
+        <th>Status</th>
+        <th>Approved By</th>
+        <th>Approved At</th>
+        <th>Map to Existing Parameter</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for param in approved_params %}
+      <tr>
+        <td>{{ param.id }}</td>
+        <!-- You can show the report's unique ID by param.report.report_unique_id or a separate query -->
+        <td>{{ param.report.report_unique_id if param.report else 'N/A' }}</td>
+        <td>{{ param.parameter_name }}</td>
+        <td>{{ param.value }}</td>
+        <td>{{ param.status.value }}</td>
+        <td>{{ param.approved_by }}</td>
+        <td>{{ param.action_timestamp }}</td>
+        <td>
+          <!-- A dropdown to map to existing approved parameters or None -->
+          <form action="/admin/parameters/{{ param.id }}/map" method="post">
+            <select name="map_to_existing">
+              <option value="None" {% if param.map_to_existing == 'None' %}selected{% endif %}>None</option>
+              {% for ap in approved_params %}
+                <option value="{{ ap.parameter_name }}" {% if param.map_to_existing == ap.parameter_name %}selected{% endif %}>
+                  {{ ap.parameter_name }}
+                </option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-secondary">Save</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- SECTION 4: Pending/Rejected Health Parameters -->
+  <h2>Pending/Rejected Health Parameters</h2>
+  <table class="table table-striped">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Report Unique ID</th>
+        <th>Parameter Name</th>
+        <th>Value</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for param in pending_rejected_params %}
+      <tr>
+        <td>{{ param.id }}</td>
+        <td>{{ param.report.report_unique_id if param.report else "N/A" }}</td>
+        <td>{{ param.parameter_name }}</td>
+        <td>{{ param.value }}</td>
+        <td>{{ param.status.value }}</td>
+        <td>
+          {% if param.status.value == 'pending' %}
+            <!-- Single form with remarks + 2 buttons -->
+            <form action="/admin/parameters/{{ param.id }}/update" method="post" style="display:inline;">
+              <input type="text" name="remarks" placeholder="Add remarks (optional)" 
+                    class="form-control d-inline-block" style="width:200px;" />
+              <button class="btn btn-success" type="submit" name="action" value="approve">Approve</button>
+              <button class="btn btn-danger" type="submit" name="action" value="reject">Reject</button>
+            </form>
+          {% elif param.status.value == 'rejected' %}
+            <p>Rejected at {{ param.action_timestamp }}<br/>Remarks: {{ param.remarks }}</p>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+</div>
+</body>
+</html>
