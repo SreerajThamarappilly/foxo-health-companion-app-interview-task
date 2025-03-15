@@ -7,7 +7,7 @@ This project is a production–grade FastAPI application for Foxo.Club, an AI–
 - **Health Parameter Extraction**: Extracts and normalizes health parameters from reports (simulated) and stores key–value pairs in DynamoDB.
 - **Admin Portal**: Internal endpoints for admin users to review clients, reports, and approve/reject extracted health parameters.
 
-It is designed to help users track and understand their health by uploading their health checkup reports. The application extracts health parameters from PDF reports, normalizes the data, and provides a rich, responsive admin portal to manage and review the information. This project is built with production-ready technologies and follows best practices using OOP, SOLID principles, and common design patterns.
+It is designed to help users track and understand their health by uploading their health checkup reports. The application extracts health parameters from PDF reports, and provides a admin portal to manage and review the information. This project is built with production-ready technologies and follows best practices using OOP, SOLID principles, and common design patterns.
 
 ## Features
 - **User Authentication & Authorization**:  
@@ -22,15 +22,17 @@ It is designed to help users track and understand their health by uploading thei
 - **Data Storage**:  
   - SQL Database (PostgreSQL): Stores user, report, and health parameter metadata.
   - NoSQL Database (DynamoDB): Stores extracted health parameters documents for flexible, high-volume data storage.
+**Health Test Parameter Extraction & Validation**:
+  - Reports are stored in AWS S3 using a custom path format.
+  - This application runs a parser to extract potential health parameters and their mandatory result values (plus optional fields like units, reference ranges, methods, etc.).
+  - The extracted parameter names (and any optional fields like units or methods, but not the sensitive numeric test result values of the clients) are sent in a single request per uploaded input PDF report to OpenAI’s API for validation.
+  - No client‐sensitive data (such as client identity, phone number, or numeric test result values) is ever sent to OpenAI.
 - **Admin Portal**:  
   - Section 1: Registered Client Details (client phone, unique client ID, and user ID).
   - Section 2: Uploaded Report Details (client phone, user ID, upload timestamp, report unique ID, processing status).
   - Section 3: Approved Health Parameters (with mapping options and approval details).
   - Section 4: Pending/Rejected Health Parameters (with a common remarks field and Approve/Reject buttons).
   - Responsive UI built with FastAPI’s Jinja2 templates and Bootstrap.
-- **Normalization & Validation**:  
-  - Normalizes lab units, reference ranges, and converts varying report structures into a common format.
-  - Reports are stored in AWS S3 using a custom path format.
 
 ## Tech Stack
   - **Backend**: Python 3.11, FastAPI, Uvicorn
@@ -44,9 +46,9 @@ It is designed to help users track and understand their health by uploading thei
 
 ## Design Principles & Patterns
 - **OOP Concepts**:
-  - Encapsulation: Models encapsulate data; services encapsulate business logic.
-  - Inheritance & Polymorphism: Custom exception classes and model base classes.
-  - Abstraction: CRUD operations are abstracted in dedicated modules.
+  - **Encapsulation**: Models encapsulate data; services encapsulate business logic.
+  - **Inheritance & Polymorphism**: Custom exception classes and model base classes.
+  - **Abstraction**: CRUD operations are abstracted in dedicated modules.
 - **Design Principles**:  
   - **Separation of Concerns**: Different modules (auth, pdf, admin) each have specific responsibilities.
   - **Dependency Injection**: FastAPI’s dependency system is used for database sessions, authentication, etc.
@@ -108,6 +110,23 @@ foxo-health-companion-app-interview-task/
 ├── .env                        # Environment variables (DB URL, AWS keys, etc.)
 ├── README.md
 ```
+
+## Testing
+- Set up a PostgreSQL database and create the required tables (use Alembic for migrations).
+- Ensure AWS credentials (for S3), DynamoDB settings and other required credentials are configured in your .env file.
+- Have RabbitMQ and Redis running for Celery to process asynchronous tasks.
+- Instead of using Docker, if you want to manually start the FastAPI server (with automatic reload for development) and to start the Celery worker (in a separate terminal):
+```bash
+uvicorn app.main:app --reload
+celery -A celery_worker worker --loglevel=info
+```
+- But if you want to use Docker, then install docker, build your docker image and run the docker container:
+```bash
+docker build -t foxo-health-companion-app .
+docker run -p 8000:8000 foxo-health-companion-app
+```
+- Open your browser and navigate to http://127.0.0.1:8000/docs to view the interactive API documentation and http://127.0.0.1:8000/admin/dashboard to view the Admin dashboard.
+- Now, you are ready to test the APIs.
 
 ## Contributing
   Contributions are welcome! Please fork the repository, create a new branch for your feature or bug fix, and submit a pull request with a detailed description of your changes.
