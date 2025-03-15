@@ -4,7 +4,7 @@
 This project is a production–grade FastAPI application for Foxo.Club, an AI–based health companion platform. It provides:
 - **Stateless Authentication & Role–Based Authorization** using JWT.
 - **PDF Report Upload**: Registered clients can upload health checkup PDFs; files are stored in AWS S3 with a custom path.
-- **Health Parameter Extraction**: Extracts and normalizes health parameters from reports (simulated) and stores key–value pairs in DynamoDB.
+- **Health Parameter Extraction**: Extracts health parameters from reports and stores key–value pairs in DynamoDB.
 - **Admin Portal**: Internal endpoints for admin users to review clients, reports, and approve/reject extracted health parameters.
 
 It is designed to help users track and understand their health by uploading their health checkup reports. The application extracts health parameters from PDF reports, and provides a admin portal to manage and review the information. This project is built with production-ready technologies and follows best practices using OOP, SOLID principles, and common design patterns.
@@ -22,7 +22,7 @@ It is designed to help users track and understand their health by uploading thei
 - **Data Storage**:  
   - SQL Database (PostgreSQL): Stores user, report, and health parameter metadata.
   - NoSQL Database (DynamoDB): Stores extracted health parameters documents for flexible, high-volume data storage.
-**Health Test Parameter Extraction & Validation**:
+- **Health Test Parameter Extraction & Validation**:
   - Reports are stored in AWS S3 using a custom path format.
   - This application runs a parser to extract potential health parameters and their mandatory result values (plus optional fields like units, reference ranges, methods, etc.).
   - The extracted parameter names (and any optional fields like units or methods, but not the sensitive numeric test result values of the clients) are sent in a single request per uploaded input PDF report to OpenAI’s API for validation.
