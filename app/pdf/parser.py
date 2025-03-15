@@ -4,6 +4,15 @@ import pdfplumber
 import openai
 from app.config import settings
 import json
+import re
+
+def normalize_parameter_name(name: str) -> str:
+    """
+    Normalize a parameter name by converting to lowercase and removing all non-alphanumeric characters.
+    This allows for case-insensitive comparisons that ignore spaces, hyphens, and special characters.
+    """
+    import re
+    return re.sub(r'[^a-z0-9]', '', name.lower())
 
 def is_valid_parameter_name(name_str: str) -> bool:
     """
