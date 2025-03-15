@@ -27,4 +27,7 @@ class Settings:
     CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "amqp://guest:guest@localhost:5672//")
     CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "rpc://")
 
+    #OpenAI API Key
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
 settings = Settings()
