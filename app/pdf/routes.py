@@ -108,9 +108,10 @@ async def extract_parameters(report_unique_id: str, db: Session = Depends(get_db
         norm_name = parser.normalize_parameter_name(validated_name)
         db_param = existing_map.get(norm_name)
         if db_param:
-            # If record exists and is rejected, update it to pending.
+            # If record exists and is rejected, update it to pending and update report_id.
             if db_param.status == HealthParameterStatus.rejected:
                 db_param.status = HealthParameterStatus.pending
+                db_param.report_id = report.id  # Update report_id to the new report id
             # Else, if already pending or approved, do nothing.
         else:
             # Insert new record with pending status.
