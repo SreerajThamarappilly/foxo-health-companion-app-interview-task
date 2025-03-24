@@ -7,7 +7,7 @@ from app.db.models import Report, HealthParameter, HealthParameterStatus
 from app.auth.routes import get_current_user
 from app.pdf import s3_utils
 from app.config import settings
-from app.pdf.parser import extract_health_parameters_from_pdf, validate_health_parameters_with_openai
+from app.pdf.parser import PDFExtractor, DefaultPDFExtractionStrategy, validate_health_parameters_with_openai
 from celery_worker import extract_pdf_task
 import boto3
 import os
@@ -88,7 +88,9 @@ async def extract_parameters(report_unique_id: str, db: Session = Depends(get_db
         raise HTTPException(status_code=500, detail=f"Failed to download PDF: {str(e)}")
     
     # Extract parameters from PDF.
-    extracted_params = extract_health_parameters_from_pdf(temp_file)
+    # extracted_params = extract_health_parameters_from_pdf(temp_file)
+    extractor = PDFExtractor(DefaultPDFExtractionStrategy())
+    extracted_params = extractor.extract_parameters(temp_file)
     if not extracted_params:
         raise HTTPException(status_code=400, detail="No health parameters extracted from the PDF.")
     

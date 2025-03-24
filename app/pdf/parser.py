@@ -2,16 +2,89 @@
 import re
 import pdfplumber
 import openai
-from app.config import settings
 import json
-import re
+from abc import ABC, abstractmethod
+from app.config import settings
 
+# ============================
+# Strategy Interface
+# ============================
+class PDFExtractionStrategy(ABC):
+    """
+    Abstract base class that defines the interface for all PDF extraction strategies.
+    Any new strategy must implement the extract (file_path: str) -> dict method.
+    """
+    @abstractmethod
+    def extract(self, file_path: str) -> dict:
+        pass
+
+
+# ============================
+# Concrete Strategy: Regex-based extraction
+# ============================
+class DefaultPDFExtractionStrategy(PDFExtractionStrategy):
+    """
+    Extracts health parameters using regex pattern matching on raw PDF text.
+    Dynamically extracts health parameters from a PDF file.
+    Mandatory: parameter name and its test result value.
+    Optionally extracts: unit.
+    Processes each page by combining all its lines (to overcome broken lines)
+    and then applies a regex to find candidate parameter entries.
+    Returns a dictionary where keys are normalized parameter names and values are details.
+    """
+    def extract(self, file_path: str) -> dict:
+        extracted = {}
+        try:
+            with pdfplumber.open(file_path) as pdf:
+                for page in pdf.pages:
+                    text = page.extract_text() or ""
+                    # Combine all lines into one block so that valid entries are not broken by newlines.
+                    combined_text = " ".join(text.splitlines())
+                    # Regex: non-greedy capture for name, optional colon or dash, then a mandatory numeric value and a unit.
+                    pattern = re.compile(
+                        r"(?P<name>[A-Za-z0-9()\.'°\s\-/]+?)\s*[:\-]?\s*(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>[A-Za-z/%]+)",
+                        re.IGNORECASE
+                    )
+                    for match in pattern.finditer(combined_text):
+                        details = match.groupdict()
+                        candidate_name = details.get("name", "").strip().lower()
+                        # Apply filtering: if the candidate name is too short or mostly generic, skip it.
+                        if not is_valid_parameter_name(candidate_name):
+                            continue
+                        # Add the candidate only if it has a value and unit.
+                        if details.get("value") and details.get("unit"):
+                            extracted[candidate_name] = {
+                                "value": details.get("value"),
+                                "unit": details.get("unit")
+                            }
+        except Exception as e:
+            print(f"Error extracting PDF: {e}")
+        return extracted
+
+
+# ============================
+# Context Class
+# ============================
+class PDFExtractor:
+    """
+    Uses a specified PDFExtractionStrategy to extract health parameters from a file.
+    Strategy can be swapped at runtime for different formats.
+    """
+    def __init__(self, strategy: PDFExtractionStrategy):
+        self.strategy = strategy
+
+    def extract_parameters(self, file_path: str) -> dict:
+        return self.strategy.extract(file_path)
+
+
+# ============================
+# Utility Functions
+# ============================
 def normalize_parameter_name(name: str) -> str:
     """
     Normalize a parameter name by converting to lowercase and removing all non-alphanumeric characters.
     This allows for case-insensitive comparisons that ignore spaces, hyphens, and special characters.
     """
-    import re
     return re.sub(r'[^a-z0-9]', '', name.lower())
 
 def is_valid_parameter_name(name_str: str) -> bool:
@@ -24,49 +97,13 @@ def is_valid_parameter_name(name_str: str) -> bool:
     if len(words) < 2:
         return False
     disqualifiers = {"high", "borderline", "normal", "desirable", "above", "below", "ref", "method"}
-    # If more than half the words are generic adjectives, reject.
     count_generic = sum(1 for w in words if w.lower() in disqualifiers)
-    if count_generic >= len(words) / 2:
-        return False
-    return True
+    return count_generic < len(words) / 2
 
-def extract_health_parameters_from_pdf(file_path):
-    """
-    Dynamically extracts health parameters from a PDF file.
-    Mandatory: parameter name and its test result value.
-    Optionally extracts: unit.
-    Processes each page by combining all its lines (to overcome broken lines)
-    and then applies a regex to find candidate parameter entries.
-    Returns a dictionary where keys are normalized parameter names and values are details.
-    """
-    extracted = {}
-    try:
-        with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
-                text = page.extract_text() or ""
-                # Combine all lines into one block so that valid entries are not broken by newlines.
-                combined_text = " ".join(text.splitlines())
-                # Regex: non-greedy capture for name, optional colon or dash, then a mandatory numeric value and a unit.
-                pattern = re.compile(
-                    r"(?P<name>[A-Za-z0-9()\.'°\s\-/]+?)\s*[:\-]?\s*(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>[A-Za-z/%]+)",
-                    re.IGNORECASE
-                )
-                for match in pattern.finditer(combined_text):
-                    details = match.groupdict()
-                    candidate_name = details.get("name", "").strip().lower()
-                    # Apply filtering: if the candidate name is too short or mostly generic, skip it.
-                    if not is_valid_parameter_name(candidate_name):
-                        continue
-                    # Add the candidate only if it has a value and unit.
-                    if details.get("value") and details.get("unit"):
-                        extracted[candidate_name] = {
-                            "value": details.get("value"),
-                            "unit": details.get("unit")
-                        }
-    except Exception as e:
-        print(f"Error extracting PDF: {e}")
-    return extracted
 
+# ============================
+# OpenAI Validation
+# ============================
 def validate_health_parameters_with_openai(extracted_params):
     """
     Validates the extracted health parameters using one OpenAI API call.
