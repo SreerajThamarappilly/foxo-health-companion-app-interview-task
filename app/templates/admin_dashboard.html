@@ -84,13 +84,17 @@
         <td>{{ param.action_timestamp }}</td>
         <td>
           <!-- A dropdown to map to existing approved parameters or None -->
-          <form action="/admin/parameters/{{ param.id }}/map" method="post">
-            <select name="map_to_existing">
-              <option value="None" {% if param.map_to_existing == 'None' %}selected{% endif %}>None</option>
-              {% for ap in approved_params %}
-                <option value="{{ ap.parameter_name }}" {% if param.map_to_existing == ap.parameter_name %}selected{% endif %}>
-                  {{ ap.parameter_name }}
-                </option>
+          <form action="/admin/parameters/{{ param.id }}/map" method="post" class="d-flex align-items-center">
+            <select name="map_to_existing" class="form-select me-2">
+              <option value="None" {% if param.map_to_existing == 'None' or param.map_to_existing == '' %}selected{% endif %}>None</option>
+              {% set used_names = [] %}
+              {% for ap in approved_dropdown %}
+                {% if ap.id != param.id and ap.parameter_name not in used_names %}
+                  {% set used_names = used_names + [ap.parameter_name] %}
+                  <option value="{{ ap.parameter_name }}" {% if param.map_to_existing == ap.parameter_name %}selected{% endif %}>
+                    {{ ap.parameter_name }}
+                  </option>
+                {% endif %}
               {% endfor %}
             </select>
             <button type="submit" class="btn btn-secondary">Save</button>

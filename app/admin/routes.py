@@ -143,13 +143,30 @@ async def dashboard(request: Request, admin=Depends(get_current_admin_user), db:
     # Section 2: Uploaded Reports
     reports = db.query(Report).all()
 
-    # Section 3: Approved Health Parameters
-    approved_params = (
+    # Section 3: Approved Health Parameters (full list)
+    approved_params_all = (
         db.query(HealthParameter)
         .options(joinedload(HealthParameter.report))
         .filter(HealthParameter.status == HealthParameterStatus.approved)
         .all()
     )
+    # Build a set of approved parameter names that are used as a mapping target.
+    mapped_names = {
+        param.map_to_existing 
+        for param in approved_params_all 
+        if param.map_to_existing not in [None, "", "None"]
+    }
+    # Filter out any approved parameter that is mapped by another (i.e. its name appears as a mapped value).
+    approved_params = [
+        param for param in approved_params_all 
+        if param.parameter_name not in mapped_names
+    ]
+    
+    # Build a dropdown list: show only approved parameters whose map_to_existing value is "None" or empty.
+    approved_dropdown = [
+        param for param in approved_params_all 
+        if param.map_to_existing in [None, "", "None"]
+    ]
 
     # Section 4: Pending/Rejected Health Parameters
     pending_rejected_params = (
@@ -164,7 +181,8 @@ async def dashboard(request: Request, admin=Depends(get_current_admin_user), db:
         "clients": clients,
         "reports": reports,
         "approved_params": approved_params,
-        "pending_rejected_params": pending_rejected_params
+        "pending_rejected_params": pending_rejected_params,
+        "approved_dropdown": approved_dropdown  # For mapping dropdown in the template.
     })
 
 @router.post("/upload", tags=["PDF Upload"])
