@@ -1,0 +1,29 @@
+Upload Report 1 - we extracted valid health parameters from the uploaded report and it will show (all valid health parameters) as pending status in Admin dashboard.
+
+
+Upload Report 2 - we extracted valid health parameters from this uploaded report. If a valid health parameter extracted from this report is already there in postgresql database (with any of status = pending/approved), then we will not consider it as a new valid health parameter as this parameter is already existing in relational database. But if the extracted health parameter is in rejected state, then we will consider it as a new health parameter and will add it as pending status.
+
+Upload Report 3 - same approach as upload report 2. 
+
+In Admin:- 
+We approve a valid health parameter - status will change from pending to approved. We will record who approved it with timestamp and what is the remarks.
+
+We reject a valid health parameter -  status will change from pending to reject. We will record who rejected it with timestamp and what is the remarks. 
+
+We don't do anything for a valid health parameter - it will remain in pending status in admin dashboard until we either approve or reject it.
+
+Now, let's say a valid health parameter "Cholestrol" (extracted from Report 2) is already approved. 
+Upload Report 3 also contains the same valid health parameter "Cholestrol". So, as this "Cholestrol" is already in approved state, we are not considering it as a new health parameter (if health parameter is either in pending or approved states).
+But, if Report 3 contains "Cholestr" (instead of "Cholestrol"), then we consider it as a new health parameter and is added to relational database and thereby to admin dashboard. In this case, our team member will see "Cholestr" as pending status in admin dashboard and he/she can either approve it or reject it or keep it in pending status (until confirmation or further checking). If our team member approves "Cholestr", then it will show as approved status in admin dashboard. In this case, we have "Cholestrol" and "Cholestr" (both approved) and we can map "Cholestrol" with "Cholestr", so that we will update both as one unique valid health parameter and only "Cholestrol" will be shown in our further reports given to the clients.
+
+If our team member rejects "Cholestr", then it will show as rejected status. But if the same "Cholestr" is there in upload report 4, then we will add new health parameter "Cholestr" as pending status, as shown in our admin dashboard. 
+
+If "Cholestr" is again extracted from another report, let's say, report 10, then if "Cholestr" was already approved earlier and was mapped to "Cholestrol", then we will not consider it as a new valid health parameter. In the further reports to the same client who uploaded the report 10, we will show our standardized name "Cholestrol" instead of "Cholestr". 
+
+This approach ensures that duplication will not occur in our standardized health parameter names and we can show a standardized approved health parameter names in our client mobile app and in all the AI generated or customized reports which we will generate in the future for that client.
+
+Let's say a new health parameter "Cholestrol - total" is extracted from report 20, then we will add it as pending status. Our team member can approve it and map it to "Cholestrol" if required (if both represents the same health parameter based on range/interval of values or testing methiod type (all optional) given in that particular report 20). Then we consider "Cholestrol - Total" = "Cholestrol" and we will show a standardized health parameter name "Cholestrol" for generating future reports.
+
+In NoSQL Database (e.g. AWS DynamoDB), each uploaded file will have a unique document with a unique document uuid. If OpenAI confirms that extracted health parameter is valid, then we will add it to NoSQL database. If a valid health parameter already exists in Relational Database with either pending/approved/rejected status, we will add that particular status also from Relational database to NoSQL database for each of the valid health parameters confirmed by openai for that particular uploaded document. 
+
+In Relational database (e.g. PostgreSQL), we will add only the unique health parameters confirmed by openai (e.g. "Cholestrol", "Cholestr", "Cholestrol - total", "HDL"m, "HD lipoprotein", etc.) with pending status, if that particular health parameter confirmed by openai is already not there in relational database with either pending or approved status. Admin dashboard is showing valid health parameters based on the entries from relational database.
