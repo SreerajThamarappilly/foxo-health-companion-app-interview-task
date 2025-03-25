@@ -3,8 +3,9 @@ from fastapi import APIRouter, Depends, Security, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from app.auth import schemas, crud
+from app.auth.schemas import Token
 from app.db.session import get_db
-from app.utils.jwt_utils import create_access_token, verify_token
+from app.utils.jwt_utils import jwt_factory
 from datetime import timedelta
 from app.config import settings
 
@@ -18,7 +19,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Security(bearer
     Returns the decoded token payload if valid.
     """
     token = credentials.credentials
-    payload = verify_token(token)
+    payload = jwt_factory.verify_token(token)
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -36,7 +37,8 @@ def signup(user_in: schemas.UserCreate, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User already exists")
     user = crud.create_user(db, user_in.phone_number, user_in.username, user_in.password, user_in.role)
-    access_token = create_access_token(
+    # Consumes the jwt factory but doesn’t know or care how tokens are created (depends on abstraction, not implementation).
+    access_token = jwt_factory.create_token(
         data={
             "sub": user.phone_number or user.username,
             "role": user.role.value,
@@ -45,7 +47,7 @@ def signup(user_in: schemas.UserCreate, db: Session = Depends(get_db)):
         },
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return schemas.Token(access_token=access_token, token_type="bearer")
 
 @router.post("/login", response_model=schemas.Token)
 def login(user_in: schemas.UserLogin, db: Session = Depends(get_db)):
@@ -57,7 +59,8 @@ def login(user_in: schemas.UserLogin, db: Session = Depends(get_db)):
     )
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    access_token = create_access_token(
+    # Consumes the jwt factory but doesn’t know or care how tokens are created (depends on abstraction, not implementation).
+    access_token = jwt_factory.create_token(
         data={
             "sub": user.phone_number or user.username,
             "role": user.role.value,
@@ -66,4 +69,4 @@ def login(user_in: schemas.UserLogin, db: Session = Depends(get_db)):
         },
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return schemas.Token(access_token=access_token, token_type="bearer")

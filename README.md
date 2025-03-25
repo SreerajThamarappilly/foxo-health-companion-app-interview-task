@@ -118,7 +118,7 @@ foxo-health-companion-app-interview-task/
 - Instead of using Docker, if you want to manually start the FastAPI server (with automatic reload for development) and to start the Celery worker (in a separate terminal):
 ```bash
 uvicorn app.main:app --reload
-celery -A celery_worker worker --loglevel=info
+python -m celery -A celery_worker worker --loglevel=info
 ```
 - But if you want to use Docker, then install docker, build your docker image and run the docker container:
 ```bash

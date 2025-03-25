@@ -1,5 +1,5 @@
 # app/admin/routes.py
-from fastapi import Request, APIRouter, Depends, HTTPException, status, Form, File, UploadFile  # Added Form import
+from fastapi import Request, APIRouter, Depends, HTTPException, status, Form, File, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, joinedload
@@ -14,7 +14,6 @@ import os
 from typing import List
 
 router = APIRouter()
-# Use a relative path to find the templates folder at the project root.
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "..", "templates"))
 
 # Dummy dependency for admin user verification.
@@ -58,32 +57,37 @@ def get_pending_parameters(db: Session = Depends(get_db), admin=Depends(get_curr
     return params
 
 @router.post("/parameters/{param_id}/approve")
-def approve_parameter(param_id: int, remarks: str = Form(None),  # Added Form import & remarks field
+def approve_parameter(param_id: int, remarks: str = Form(None),
                       admin=Depends(get_current_admin_user),
                       db: Session = Depends(get_db)):
+    """
+    Approve a pending health parameter.
+    If the parameter exists and its status is 'pending' or 'rejected', update its status to 'approved',
+    record the approval timestamp, the approving admin, and any remarks.
+    """
     param = db.query(HealthParameter).filter(HealthParameter.id == param_id).first()
     if not param:
         raise HTTPException(status_code=404, detail="Parameter not found")
     param.status = HealthParameterStatus.approved
-    param.action_timestamp = db.bind.func.now()
-    # Use the admin's id from the dummy dependency
+    param.action_timestamp = datetime.utcnow()  # Using Python's datetime for consistency.
     param.approved_by = admin.get("id", 1)
     param.remarks = remarks
     db.commit()
     return {"message": "Parameter approved", "parameter_id": param_id}
 
 @router.post("/parameters/{param_id}/reject")
-def reject_parameter(param_id: int, remarks: str = Form(None),  # Optionally accept remarks for rejection
+def reject_parameter(param_id: int, remarks: str = Form(None),
                      admin=Depends(get_current_admin_user),
                      db: Session = Depends(get_db)):
     """
-    Rejects a pending health parameter.
+    Reject a pending health parameter.
+    Updates the record to 'rejected' status and records the timestamp and any remarks.
     """
     param = db.query(HealthParameter).filter(HealthParameter.id == param_id).first()
     if not param:
         raise HTTPException(status_code=404, detail="Parameter not found")
     param.status = HealthParameterStatus.rejected
-    param.action_timestamp = db.bind.func.now()
+    param.action_timestamp = datetime.utcnow()
     param.remarks = remarks
     db.commit()
     return {"message": "Parameter rejected", "parameter_id": param_id}
@@ -100,16 +104,16 @@ def map_parameter(param_id: int, map_to_existing: str = Form(...),
     return {"message": "Mapping updated", "parameter_id": param_id}
 
 @router.post("/parameters/{param_id}/update")
-def update_parameter(
-    param_id: int,
-    action: str = Form(...),
-    remarks: str = Form(None),
-    admin=Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
-):
+def update_parameter(param_id: int,
+                     action: str = Form(...),
+                     remarks: str = Form(None),
+                     admin=Depends(get_current_admin_user),
+                     db: Session = Depends(get_db)):
     """
-    Single endpoint to handle both Approve and Reject actions,
-    plus optional remarks input.
+    Single endpoint to update a parameter's status.
+    If action is 'approve', the parameter is updated to approved (including admin details).
+    If action is 'reject', it is updated to rejected.
+    No DynamoDB update is performed here; only PostgreSQL is updated.
     """
     param = db.query(HealthParameter).filter(HealthParameter.id == param_id).first()
     if not param:
@@ -117,15 +121,14 @@ def update_parameter(
 
     if action == "approve":
         param.status = HealthParameterStatus.approved
-        param.action_timestamp = datetime.utcnow()  # <-- Fix: use Python time
+        param.action_timestamp = datetime.utcnow()
         param.approved_by = admin.get("id", 1)
         param.remarks = remarks
         db.commit()
         return {"message": "Parameter approved", "parameter_id": param_id}
-
     elif action == "reject":
         param.status = HealthParameterStatus.rejected
-        param.action_timestamp = datetime.utcnow()  # <-- Fix: use Python time
+        param.action_timestamp = datetime.utcnow()
         param.remarks = remarks
         db.commit()
         return {"message": "Parameter rejected", "parameter_id": param_id}
@@ -140,13 +143,32 @@ async def dashboard(request: Request, admin=Depends(get_current_admin_user), db:
     # Section 2: Uploaded Reports
     reports = db.query(Report).all()
 
-    # Section 3: Approved Health Parameters
-    approved_params = (
+    # Section 3: Approved Health Parameters (full list)
+    approved_params_all = (
         db.query(HealthParameter)
         .options(joinedload(HealthParameter.report))
         .filter(HealthParameter.status == HealthParameterStatus.approved)
         .all()
     )
+    # Build a set of approved parameter names that are used as a mapping target.
+    mapped_names = {
+        param.map_to_existing 
+        for param in approved_params_all 
+        if param.map_to_existing not in [None, "", "None"]
+    }
+    # Filter out any approved parameter that is mapped by another (i.e. its name appears as a mapped value).
+    approved_params = [
+        param for param in approved_params_all 
+        if param.parameter_name not in mapped_names
+    ]
+    
+    # Build a dropdown list: show only approved parameters whose map_to_existing value is "None" or empty
+    # and whose own parameter_name isn't currently mapped by another record.
+    approved_dropdown = [
+        p for p in approved_params_all
+        if p.map_to_existing in [None, "", "None"]  # This param is not mapped to something else
+            and p.parameter_name not in mapped_names # It's not mapped by another param
+    ]
 
     # Section 4: Pending/Rejected Health Parameters
     pending_rejected_params = (
@@ -161,7 +183,8 @@ async def dashboard(request: Request, admin=Depends(get_current_admin_user), db:
         "clients": clients,
         "reports": reports,
         "approved_params": approved_params,
-        "pending_rejected_params": pending_rejected_params
+        "pending_rejected_params": pending_rejected_params,
+        "approved_dropdown": approved_dropdown  # For mapping dropdown in the template.
     })
 
 @router.post("/upload", tags=["PDF Upload"])
@@ -197,5 +220,4 @@ async def upload_report(
 
     # Trigger asynchronous PDF extraction
     extract_pdf_task.delay(s3_key)
-
     return {"message": "Report uploaded successfully", "s3_key": s3_key, "report_id": report_id, "timestamp": timestamp}

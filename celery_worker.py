@@ -5,12 +5,12 @@ from celery import Celery
 from app.config import settings
 from app.db.session import SessionLocal
 from app.db.models import Report, HealthParameter, HealthParameterStatus
-from app.pdf.parser import extract_health_parameters_from_pdf  # Your PDF parser function
+from app.pdf.parser import PDFExtractor, DefaultPDFExtractionStrategy
 
 celery_app = Celery(
     "worker",
-    broker=settings.CELERY_BROKER_URL,         # e.g. "amqp://guest:guest@localhost:5672//"
-    backend=settings.CELERY_RESULT_BACKEND      # e.g. "rpc://"
+    broker=settings.CELERY_BROKER_URL,
+    backend=settings.CELERY_RESULT_BACKEND
 )
 
 @celery_app.task
@@ -33,7 +33,8 @@ def extract_pdf_task(s3_key: str):
         s3.download_file(bucket, s3_key, temp_path)
 
         # Extract health parameters from the PDF
-        extracted_params = extract_health_parameters_from_pdf(temp_path)
+        extractor = PDFExtractor(DefaultPDFExtractionStrategy())
+        extracted_params = extractor.extract_parameters(temp_path)
         # Example return: {"HDL": {"value": "29", "unit": "mg/dL", "reference_range": "<40", "method": "calculated"}, ...}
 
         # Find the associated report record by matching the S3 key
