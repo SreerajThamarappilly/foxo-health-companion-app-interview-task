@@ -1,7 +1,7 @@
-# Foxo.Club Health Companion App
+# Health Companion App
 
 ## Overview
-This project is a production–grade FastAPI application for Foxo.Club, an AI–based health companion platform. It provides:
+This project is a production–grade FastAPI application for an AI–based health companion platform. It provides:
 - **Stateless Authentication & Role–Based Authorization** using JWT.
 - **PDF Report Upload**: Registered clients can upload health checkup PDFs; files are stored in AWS S3 with a custom path.
 - **Health Parameter Extraction**: Extracts health parameters from reports and stores key–value pairs in DynamoDB.
@@ -70,7 +70,7 @@ It is designed to help users track and understand their health by uploading thei
 
 ## Project Structure
 ```bash
-foxo-health-companion-app-interview-task/
+health-companion-fastapi-app/
 ├── app/
 │   ├── admin/
 │   │   ├── __init__.py
@@ -122,8 +122,8 @@ python -m celery -A celery_worker worker --loglevel=info
 ```
 - But if you want to use Docker, then install docker, build your docker image and run the docker container:
 ```bash
-docker build -t foxo-health-companion-app .
-docker run -p 8000:8000 foxo-health-companion-app
+docker build -t health-companion-app .
+docker run -p 8000:8000 health-companion-app
 ```
 - Open your browser and navigate to http://127.0.0.1:8000/docs to view the interactive API documentation and http://127.0.0.1:8000/admin/dashboard to view the Admin dashboard.
 - Now, you are ready to test the APIs.

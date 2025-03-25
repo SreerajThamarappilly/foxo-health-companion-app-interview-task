@@ -11,7 +11,7 @@ from app.pdf import routes as pdf_routes
 logger = logging.getLogger("uvicorn.error")
 
 app = FastAPI(
-    title="Foxo.Club Health Companion API",
+    title="Health Companion API",
     docs_url="/docs",
     redoc_url="/redoc"
 )
