@@ -162,10 +162,12 @@ async def dashboard(request: Request, admin=Depends(get_current_admin_user), db:
         if param.parameter_name not in mapped_names
     ]
     
-    # Build a dropdown list: show only approved parameters whose map_to_existing value is "None" or empty.
+    # Build a dropdown list: show only approved parameters whose map_to_existing value is "None" or empty
+    # and whose own parameter_name isn't currently mapped by another record.
     approved_dropdown = [
-        param for param in approved_params_all 
-        if param.map_to_existing in [None, "", "None"]
+        p for p in approved_params_all
+        if p.map_to_existing in [None, "", "None"]  # This param is not mapped to something else
+            and p.parameter_name not in mapped_names # It's not mapped by another param
     ]
 
     # Section 4: Pending/Rejected Health Parameters
@@ -218,5 +220,4 @@ async def upload_report(
 
     # Trigger asynchronous PDF extraction
     extract_pdf_task.delay(s3_key)
-
     return {"message": "Report uploaded successfully", "s3_key": s3_key, "report_id": report_id, "timestamp": timestamp}

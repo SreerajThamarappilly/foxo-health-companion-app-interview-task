@@ -159,10 +159,10 @@ class DefaultPDFExtractionStrategy(PDFExtractionStrategy):
     def extract(self, file_path: str) -> dict:
         # Step 1: Extract text from the PDF.
         combined_text = extract_text_from_pdf(file_path)
-        save_text_to_temp_file(combined_text)
+        save_text_to_temp_file(str(combined_text))
         # Step 2: Filter out health parameters from the combined text.
         extracted_params = filter_health_parameters_from_text(combined_text)
-        save_text_to_temp_file(extracted_params)
+        save_text_to_temp_file(str(extracted_params))
         return extracted_params
 
 
@@ -222,7 +222,7 @@ def validate_health_parameters_with_openai(extracted_params):
         "In your response, include only the valid health test names from the given below Parameters. \n\n"
         "Parameters:\n" + json.dumps(params_for_validation, indent=2)
     )
-    save_text_to_temp_file(json.dumps(params_for_validation, indent=2))
+    save_text_to_temp_file(str(json.dumps(params_for_validation, indent=2)))
     
     try:
         response = openai.ChatCompletion.create(
@@ -237,7 +237,7 @@ def validate_health_parameters_with_openai(extracted_params):
         raise Exception(f"OpenAI API request failed: {e}")
     
     content = response["choices"][0]["message"]["content"]
-    save_text_to_temp_file(response)
+    save_text_to_temp_file(str(response))
     if content.startswith("```"):
         content = content.strip("```").strip()
     

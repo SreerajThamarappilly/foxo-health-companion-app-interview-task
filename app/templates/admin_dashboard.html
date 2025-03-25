@@ -64,7 +64,6 @@
         <th>ID</th>
         <th>Report Unique ID</th>
         <th>Parameter Name</th>
-        <th>Value</th>
         <th>Status</th>
         <th>Approved By</th>
         <th>Approved At</th>
@@ -78,7 +77,6 @@
         <!-- You can show the report's unique ID by param.report.report_unique_id or a separate query -->
         <td>{{ param.report.report_unique_id if param.report else 'N/A' }}</td>
         <td>{{ param.parameter_name }}</td>
-        <td>{{ param.value }}</td>
         <td>{{ param.status.value }}</td>
         <td>{{ param.approved_by }}</td>
         <td>{{ param.action_timestamp }}</td>
@@ -113,7 +111,6 @@
         <th>ID</th>
         <th>Report Unique ID</th>
         <th>Parameter Name</th>
-        <th>Value</th>
         <th>Status</th>
         <th>Actions</th>
       </tr>
@@ -124,7 +121,6 @@
         <td>{{ param.id }}</td>
         <td>{{ param.report.report_unique_id if param.report else "N/A" }}</td>
         <td>{{ param.parameter_name }}</td>
-        <td>{{ param.value }}</td>
         <td>{{ param.status.value }}</td>
         <td>
           {% if param.status.value == 'pending' %}

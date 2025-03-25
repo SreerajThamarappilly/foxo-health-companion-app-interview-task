@@ -95,29 +95,59 @@ async def extract_parameters(report_unique_id: str, db: Session = Depends(get_db
     
     # Get the list of validated health test names from OpenAI.
     validated_names = list(valid_params.keys())
-    
-    # Fetch all existing health parameters for this report from PostgreSQL.
-    existing_params = db.query(HealthParameter).filter(
-        HealthParameter.report_id == report.id
-    ).all()
-    existing_map = { parser.normalize_parameter_name(p.parameter_name): p for p in existing_params }
 
-    # Update PostgreSQL: Insert new records or update rejected ones.
+    # Load ALL health parameters from DB (across all reports)
+    all_params = db.query(HealthParameter).all()
+
+    # Build a set of (normalized_name, report_id) for quick lookup
+    all_set = set(
+        (parser.normalize_parameter_name(param.parameter_name), param.report_id)
+        for param in all_params
+    )
+
+    # Build a set of normalized names for the given report_id
+    existing_report_param_names = {
+        parser.normalize_parameter_name(param.parameter_name)
+        for param in all_params
+        if param.report_id == report.id
+    }
+
+    # If ALL validated_names for this report already exist, return immediately
+    validated_norms = set(parser.normalize_parameter_name(name) for name in validated_names)
+    if validated_norms.issubset(existing_report_param_names):
+        return {"message": "Health Parameter Already Extracted"}
+
+    # Prepare for partial update/insert of new parameters
+    # Fetch the existing health parameters for this report only
+    existing_for_this_report = {
+        parser.normalize_parameter_name(p.parameter_name): p
+        for p in all_params
+        if p.report_id == report.id
+    }
+
+    # Update PostgreSQL: Insert new or update rejected → pending
     for validated_name in validated_names:
         details = valid_params[validated_name]
         norm_name = parser.normalize_parameter_name(validated_name)
-        db_param = existing_map.get(norm_name)
-        if db_param:
-            # If record exists and is rejected, update it to pending and update report_id.
-            if db_param.status == HealthParameterStatus.rejected:
-                db_param.status = HealthParameterStatus.pending
-                db_param.report_id = report.id  # Update report_id to the new report id
-            # Else, if already pending or approved, do nothing.
-        else:
-            # Insert new record with pending status.
+
+        # Check if param_name already exists in ANY report
+        # i.e. (norm_name, ANY report_id) in all_set → skip insertion.
+        already_exists_in_any_report = any(
+            a == norm_name for (a, _) in all_set
+        )
+
+        # Possibly update the record if it's in the current report with status=rejected
+        db_param = existing_for_this_report.get(norm_name)
+        if db_param and db_param.status == HealthParameterStatus.rejected:
+            # Update rejected → pending, reassign to this report
+            db_param.status = HealthParameterStatus.pending
+            db_param.report_id = report.id
+
+        # If the param name does NOT exist in ANY report, insert a new pending record
+        elif not already_exists_in_any_report:
             new_param = HealthParameter(
                 report_id=report.id,
-                parameter_name=validated_name.strip(),  # store original validated name
+                parameter_name=validated_name.strip(),
                 value=details.get("value"),
                 unit=details.get("unit"),
                 reference_range=details.get("reference_range"),
@@ -125,15 +155,16 @@ async def extract_parameters(report_unique_id: str, db: Session = Depends(get_db
                 status=HealthParameterStatus.pending
             )
             db.add(new_param)
+            # Add to our in-memory set to avoid repeated inserts in the same call
+            all_set.add((norm_name, report.id))
+
     db.commit()
-    
-    # Rebuild the mapping from DB after commit.
+
+    # Rebuild the mapping from DB after commit (fetch from this report again)
     existing_params = db.query(HealthParameter).filter(
         HealthParameter.report_id == report.id
     ).all()
-    
-    # Build DynamoDB document: create a single document for this PDF upload that includes
-    # a list of validated parameters with their statuses (approved or pending).
+
     dynamo_table_name = settings.DYNAMODB_HEALTH_TABLE
     if not dynamo_table_name:
         raise HTTPException(status_code=500, detail="DynamoDB table name not configured")
@@ -148,15 +179,24 @@ async def extract_parameters(report_unique_id: str, db: Session = Depends(get_db
     # We use the same validation from OpenAI: consider only parameters in validated_names.
     validated_norm_names = [parser.normalize_parameter_name(name) for name in validated_names]
     
-    for param in existing_params:
-        norm_db = parser.normalize_parameter_name(param.parameter_name)
-        if norm_db in validated_norm_names:
-            # At this point, any parameter with status 'rejected' was updated to 'pending'.
-            status_str = "approved" if param.status == HealthParameterStatus.approved else "pending"
-            dynamo_document["parameters"].append({
-                "parameter_name": param.parameter_name,
-                "status": status_str
-            })
+    norm_map = {
+        parser.normalize_parameter_name(p.parameter_name): p
+        for p in all_params
+    }
+
+    for vname in validated_names:
+        vnorm = parser.normalize_parameter_name(vname)
+        db_param = norm_map.get(vnorm)  # None if not found in ANY report
+
+        if db_param and db_param.status == HealthParameterStatus.approved:
+            status_str = "approved"
+        else:
+            status_str = "pending"
+
+        dynamo_document["parameters"].append({
+            "parameter_name": vname,
+            "status": status_str
+        })
     
     # Extract approved and pending keys from the DynamoDB document.
     approved_keys = [item["parameter_name"] for item in dynamo_document["parameters"] if item["status"] == "approved"]
